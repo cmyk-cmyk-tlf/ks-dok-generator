@@ -1,0 +1,81 @@
+import json
+from pathlib import Path
+import streamlit as st
+from generator import make_assessments, make_activities, DOK_DEFS
+
+st.set_page_config(page_title="KS Standards DOK Generator", page_icon="📚", layout="centered")
+
+st.title("Kansas Standards → DOK-Aligned Assessments & Activities")
+st.caption("Pick a subject and standard, choose a DOK level, and get ready-to-use items + activities.")
+
+DATA_DIR = Path(__file__).parent / "standards"
+SUBJECTS = {
+    "ELA": DATA_DIR / "ELA.json",
+    "Math": DATA_DIR / "Math.json",
+    "Science": DATA_DIR / "Science.json",
+    "Social Studies": DATA_DIR / "SocialStudies.json",
+}
+
+subject = st.selectbox("Subject Area", list(SUBJECTS.keys()))
+
+# Load this subject's standards
+with open(SUBJECTS[subject], "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+grades_map = data.get("grades", {})              # {"5": [...], "7": [...], "HS": [...]}
+grade_options = ["(All grades)"] + list(grades_map.keys())
+
+grade_choice = st.selectbox("Grade / Band", grade_options)
+
+# Build the standards list based on grade selection
+def all_standards(gmap: dict[str, list[str]]) -> list[str]:
+    out = []
+    for arr in gmap.values():
+        out.extend(arr)
+    # dedupe while preserving order
+    seen, deduped = set(), []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+    return deduped
+
+if grade_choice == "(All grades)":
+    standards_list = all_standards(grades_map)
+else:
+    standards_list = grades_map.get(grade_choice, [])
+
+if not standards_list:
+    st.warning("No standards found for this selection. Try another grade/band or subject.")
+standard = st.selectbox("Standard", standards_list, index=0 if standards_list else None)
+
+dok = st.selectbox("Target Depth of Knowledge (DOK)", [1, 2, 3, 4], index=1)
+st.info(f"DOK {dok}: {DOK_DEFS[dok]}")
+
+constraints = st.text_area(
+    "Optional constraints (format, time, tools, accommodations)",
+    placeholder="e.g., 2 selected-response + 1 constructed response; 20 minutes; read-aloud allowed"
+)
+
+if st.button("Generate Assessments & Activities"):
+    std_text = standard or ""
+    grd = grade_choice if grade_choice != "(All grades)" else ""
+    assessments = make_assessments(std_text, subject, grd, dok)
+    activities = make_activities(std_text, subject, grd, dok)
+
+    st.subheader("Assessments (aligned to your DOK)")
+    for i, item in enumerate(assessments, start=1):
+        with st.expander(f"{i}. {item['type']}"):
+            st.markdown(f"**Item:** {item['text']}")
+            st.markdown(f"**Answer/Exemplar:** {item['answer']}")
+            st.markdown(f"**Success Criteria:** {item['success']}")
+            st.markdown(f"**DOK Justification:** DOK {item['dok']} — {item['dok_why']}")
+
+    st.subheader("Learning Activities (aligned to your DOK)")
+    for i, act in enumerate(activities, start=1):
+        with st.expander(f"{i}. {act['title']}"):
+            st.markdown(f"**Task:** {act['task']}")
+            st.markdown(f"**Materials/Tools:** {act['materials']}")
+            st.markdown(f"**Evidence of Learning:** {act['evidence']}")
+            st.markdown(f"**Teacher Role/Scaffolds:** {act['teacher']}")
+            st.markdown(f"**DOK Justification:** DOK {act['dok']} — {act['dok_why']}")
